@@ -3,7 +3,8 @@ import type { AppProps } from 'next/app';
 import '@livekit/components-styles';
 import '@livekit/components-styles/prefabs';
 import { DefaultSeo } from 'next-seo';
-import "../styles/global.css";
+import '../styles/global.css';
+import { Toaster } from '@lib/components/ui/sonner';
 
 function MyApp({ Component, pageProps }: AppProps) {
   return (
@@ -54,6 +55,7 @@ function MyApp({ Component, pageProps }: AppProps) {
         ]}
       />
       <Component {...pageProps} />
+      <Toaster />
     </>
   );
 }

@@ -1,6 +1,10 @@
 {
   "compilerOptions": {
-    "target": "es5",
+    "paths": {
+      "@lib/*": ["lib/*"]
+    },
+    "baseUrl": ".",
+    "target": "ESNext",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
     "skipLibCheck": true,
@@ -14,8 +18,14 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", "firebase.js"],
-  "exclude": ["node_modules"]
+
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", "firebase.js", ".next/types/**/*.ts"],
+  "exclude": ["node_modules", "cache"]
 }
