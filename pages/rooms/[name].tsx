@@ -1,4 +1,3 @@
-'use client';
 import {
   LiveKitRoom,
   VideoConference,
@@ -18,21 +17,22 @@ import {
   setLogLevel,
 } from 'livekit-client';
 
-import type { NextPage } from 'next';
 import Head from 'next/head';
-import { useRouter } from 'next/router';
 import * as React from 'react';
+import { useState, useEffect } from 'react';
+import type { NextPage } from 'next';
+import { useRouter } from 'next/router';
 import { DebugMode } from '../../lib/Debug';
-import { decodePassphrase, useServerUrl } from '../../lib/client-utils';
 import { SettingsMenu } from '../../lib/SettingsMenu';
+import { decodePassphrase, useServerUrl } from '../../lib/client-utils';
+import FullScreenWhiteboard from '../components/FullScreenWhiteboard';
 
 const Home: NextPage = () => {
   const router = useRouter();
   const { name: roomName } = router.query;
 
-  const [preJoinChoices, setPreJoinChoices] = React.useState<LocalUserChoices | undefined>(
-    undefined,
-  );
+  const [preJoinChoices, setPreJoinChoices] = useState<LocalUserChoices | undefined>(undefined);
+  const [isLocked, setIsLocked] = useState(false);
 
   const preJoinDefaults = React.useMemo(() => {
     return {
@@ -42,15 +42,41 @@ const Home: NextPage = () => {
     };
   }, []);
 
-  const handlePreJoinSubmit = React.useCallback((values: LocalUserChoices) => {
-    setPreJoinChoices(values);
-  }, []);
+  const handlePreJoinSubmit = React.useCallback(async (values: LocalUserChoices) => {
+    try {
+      const response = await fetch('../api/getLockStatus', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ roomId: roomName }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch lock status');
+      }
+
+      const data = await response.json();
+      if (data.lockStatus) {
+        setIsLocked(true);
+        return;
+      }
+
+      setPreJoinChoices(values);
+    } catch (error) {
+      console.error('Error fetching lock status:', error);
+    }
+  }, [roomName]);
 
   const onPreJoinError = React.useCallback((e: any) => {
     console.error(e);
   }, []);
 
   const onLeave = React.useCallback(() => router.push('/'), []);
+
+  if (isLocked) {
+    alert('This meeting is currently locked. Please try again later.');
+  }
 
   return (
     <>
@@ -67,7 +93,7 @@ const Home: NextPage = () => {
             onLeave={onLeave}
           ></ActiveRoom>
         ) : (
-          <div style={{ display: 'grid', placeItems: 'center', height: '100%' }}>
+          <div className='grid items-center h-[100%]'>
             <PreJoin
               onError={onPreJoinError}
               defaults={preJoinDefaults}
@@ -88,7 +114,62 @@ type ActiveRoomProps = {
   region?: string;
   onLeave?: () => void;
 };
+
 const ActiveRoom = ({ roomName, userChoices, onLeave }: ActiveRoomProps) => {
+  const [isLocked, setIsLocked] = useState(false);
+  const [roomExists, setRoomExists] = useState(true); 
+  const [showWhiteboard, setShowWhiteboard] = useState(false);
+
+  const fetchLockStatus = async () => {
+    try {
+      const response = await fetch('../api/getLockStatus', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ roomId: roomName }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch lock status');
+      }
+
+      const data = await response.json();
+      setIsLocked(data.lockStatus);
+      setRoomExists(true); 
+    } catch (error) {
+      console.error('Error fetching lock status:', error);
+      setRoomExists(false); 
+    }
+  };
+
+  useEffect(() => {
+    fetchLockStatus();
+    const intervalId = setInterval(fetchLockStatus, 1000); 
+    return () => clearInterval(intervalId);
+  }, [roomName]);
+
+  const toggleLock = async () => {
+    try {
+      const response = await fetch('../api/toggleLock', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ roomId: roomName, lock_status: !isLocked }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update lock status');
+      }
+
+      const data = await response.json();
+      setIsLocked(data.lockStatus);
+    } catch (error) {
+      console.error('Error updating lock status:', error);
+    }
+  };
+
   const tokenOptions = React.useMemo(() => {
     return {
       userInfo: {
@@ -170,6 +251,10 @@ const ActiveRoom = ({ roomName, userChoices, onLeave }: ActiveRoomProps) => {
     };
   }, []);
 
+  if (!roomExists) {
+    alert('Room not found or error fetching room status.');
+  }
+
   return (
     <>
       {liveKitUrl && (
@@ -182,13 +267,31 @@ const ActiveRoom = ({ roomName, userChoices, onLeave }: ActiveRoomProps) => {
           audio={userChoices.audioEnabled}
           onDisconnected={onLeave}
         >
-          <VideoConference
-            chatMessageFormatter={formatChatMessageLinks}
-            SettingsComponent={
-              process.env.NEXT_PUBLIC_SHOW_SETTINGS_MENU === 'true' ? SettingsMenu : undefined
-            }
-          />
+          {showWhiteboard ? (
+            <div className='bg-white'>
+              <p className='text-black font-bold text-xl flex justify-center items-center'>Whiteboard Placeholder</p>
+              <FullScreenWhiteboard/>
+            </div>
+          ) : (
+            <VideoConference
+              chatMessageFormatter={formatChatMessageLinks}
+              SettingsComponent={
+                process.env.NEXT_PUBLIC_SHOW_SETTINGS_MENU === 'true' ? SettingsMenu : undefined
+              }
+            />
+          )}
+          <div className="controls">
+            <button type="button" onClick={() => setShowWhiteboard(!showWhiteboard)} className="bg-[#1e1e1e] text-white items-center inline-block text-[16px] cursor-pointer rounded-lg hover:bg-[#303032]">
+              {showWhiteboard ? 'Back to Conference' : 'Show Whiteboard'}
+            </button>
+          </div>
           <DebugMode />
+          <button type='button' className="lk-button absolute top-[10px] right-[10px]" onClick={toggleLock}>
+            {isLocked ? '🔒' : '🔓'}
+          </button>
+          <div className="absolute top-[50px] right-[10px]">
+            {isLocked ? 'Room is locked' : 'Room is unlocked'}
+          </div>
         </LiveKitRoom>
       )}
     </>

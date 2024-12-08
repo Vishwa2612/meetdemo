@@ -1,11 +1,11 @@
-import { useRouter } from 'next/router';
 import type { GetServerSideProps, InferGetServerSidePropsType } from 'next';
-import React, { ReactElement, useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
+import React, { ReactElement, useState } from 'react';
+import { useSession, signOut } from 'next-auth/react'; 
 import { encodePassphrase, generateRoomId, randomString } from '../lib/client-utils';
 import styles from '../styles/Home.module.css';
 import Link from 'next/link';
-import { db, auth, onAuthStateChanged, signOut } from '../firebase';
-import { getFirestore, doc, setDoc } from "firebase/firestore";
+import { getSession } from 'next-auth/react';
 
 interface TabsProps {
   children: ReactElement[];
@@ -44,29 +44,38 @@ function DemoMeetingTab({ label }: { label: string }) {
   const router = useRouter();
   const [e2ee, setE2ee] = useState(false);
   const [sharedPassphrase, setSharedPassphrase] = useState(randomString(64));
+  const { data: session } = useSession(); // Fetch session information
   
   const startMeeting = async () => {
-    if (!auth.currentUser) {
+    if (!session) {
+      // Redirect to login page if user is not authenticated
       router.push('/auth/login');
       return;
     }
+
     const roomId = generateRoomId();
-    const meetingRef = doc(db, 'meetings', roomId); 
-  try {
-    await setDoc(meetingRef, { 
-      owner: auth.currentUser.uid,
-      roomId: roomId,
-      created_at: new Date(),
-    });
-    if (e2ee) {
-      router.push(`/rooms/${roomId}#${encodePassphrase(sharedPassphrase)}`);
-    } else {
-      router.push(`/rooms/${roomId}`);
+    const roomLink = e2ee
+      ? `/rooms/${roomId}#${encodePassphrase(sharedPassphrase)}`
+      : `/rooms/${roomId}`;
+    const lock_status = false;
+    try {
+      const response = await fetch('./api/saveRoom', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ roomId, lock_status }),
+      });
+      if (!response.ok) {
+        const errorDetails = await response.json();
+        throw new Error(`Failed to save room details: ${errorDetails.details}`);
+      }
+      router.push(roomLink);
+    } catch (error) {
+      console.error('Error starting the meeting:', error);
     }
-  }catch (error) {
-    console.error('Error starting meeting:', error.message);
-  }
   };
+
   return (
     <div className={styles.tabContent}>
       <p style={{ margin: 0 }}>Try LiveKit Meet for free with our live demo project.</p>
@@ -101,8 +110,10 @@ function DemoMeetingTab({ label }: { label: string }) {
 
 function CustomConnectionTab({ label }: { label: string }) {
   const router = useRouter();
+
   const [e2ee, setE2ee] = useState(false);
   const [sharedPassphrase, setSharedPassphrase] = useState(randomString(64));
+
   const onSubmit: React.FormEventHandler<HTMLFormElement> = (event) => {
     event.preventDefault();
     const formData = new FormData(event.target as HTMLFormElement);
@@ -158,6 +169,7 @@ function CustomConnectionTab({ label }: { label: string }) {
           </div>
         )}
       </div>
+
       <hr
         style={{ width: '100%', borderColor: 'rgba(255, 255, 255, 0.15)', marginBlock: '1rem' }}
       />
@@ -172,40 +184,20 @@ function CustomConnectionTab({ label }: { label: string }) {
   );
 }
 
-export const getServerSideProps: GetServerSideProps<{ tabIndex: number }> = async ({
-  query,
-  res,
-}) => {
-  res.setHeader('Cache-Control', 'public, max-age=7200');
-  const tabIndex = query.tab === 'custom' ? 1 : 0;
-  return { props: { tabIndex } };
+export const getServerSideProps: GetServerSideProps = async ({ req }) => {
+  const session = await getSession({ req });
+
+  return {
+    props: {
+      session,
+    },
+  };
 };
 
 const Home = ({ tabIndex }: InferGetServerSidePropsType<typeof getServerSideProps>) => {
   const router = useRouter();
-  const [user, setUser] = useState(null); 
+  const { data: session } = useSession(); // Fetch session information
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setUser(user); 
-      } else {
-        setUser(null); 
-      }
-    });
-    return () => unsubscribe(); 
-  }, []);
-
-  const handleSignOut = async () => {
-    try {
-      await signOut(auth);
-      setUser(null);
-      router.push('/');
-    } catch (error) {
-      console.error('Error signing out:', error.message);
-    }
-  };
-  
   function onTabSelected(index: number) {
     const tab = index === 1 ? 'custom' : 'demo';
     router.push({ query: { tab } });
@@ -213,20 +205,19 @@ const Home = ({ tabIndex }: InferGetServerSidePropsType<typeof getServerSideProp
 
   return (
     <>
-    <div className='flex justify-end font-semibold text-lg items-center p-5'>
-          {user ? (
-            <div className="space-x-5">
-              <span>{user.displayName}</span>
-              <span>Email: {user.email}</span>
-              <button onClick={handleSignOut} className='border border-black rounded-2xl p-1 bg-[#ff6352] text-black hover:bg-white  hover:text-[#ff6352] duration-500'>Sign Out</button>
-            </div>
-          ) : (
-            <div className="space-x-5 items-center justify-center">
-              <Link href="/auth/signup" className='border border-black rounded-2xl p-1 bg-[#ff6352] text-black hover:bg-white  hover:text-[#ff6352] duration-500'>Sign Up</Link>
-              <Link href="/auth/login" className='border border-black rounded-2xl p-1 bg-white text-black hover:bg-[#ff6352] hover:text-black duration-500'>Login</Link>
-            </div>
-          )}
-        </div>
+      <div className="flex items-center justify-end space-x-4 p-4">
+        {session ? (
+          <>
+            <div className="text-white">Welcome, {session.user.email}</div>
+            <button className="text-white" onClick={() => signOut()}>Sign Out</button>
+          </>
+        ) : (
+          <>
+            <Link href="/auth/login" className="text-white">Login</Link>
+            <Link href="/auth/signup" className="text-white">SignUp</Link>
+          </>
+        )}
+      </div>
       <main className={styles.main} data-lk-theme="default">
         <div className="header">
           <img src="/images/livekit-meet-home.svg" alt="LiveKit Meet" width="360" height="45" />

@@ -10,13 +10,16 @@ import {
   VideoPresets,
 } from 'livekit-client';
 import { useRouter } from 'next/router';
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { decodePassphrase } from '../../lib/client-utils';
 import { DebugMode } from '../../lib/Debug';
+import FullScreenWhiteboard from '../components/FullScreenWhiteboard';
+
 
 export default function CustomRoomConnection() {
   const router = useRouter();
   const { liveKitUrl, token, codec } = router.query;
+  const [showWhiteboard, setShowWhiteboard] = useState(false);
 
   const e2eePassphrase =
     typeof window !== 'undefined' && decodePassphrase(window.location.hash.substring(1));
@@ -46,15 +49,21 @@ export default function CustomRoomConnection() {
   }, []);
 
   const room = useMemo(() => new Room(roomOptions), []);
-  if (e2eeEnabled) {
-    keyProvider.setKey(e2eePassphrase);
-    room.setE2EEEnabled(true);
-  }
+  
   const connectOptions = useMemo((): RoomConnectOptions => {
     return {
       autoSubscribe: true,
     };
   }, []);
+
+  useEffect(() => {
+    if (e2eeEnabled) {
+      keyProvider.setKey(e2eePassphrase);
+      room.setE2EEEnabled(true).catch((error) => {
+        console.error('Error enabling E2EE:', error);
+      });
+    }
+  }, [e2eeEnabled, e2eePassphrase, keyProvider, room]);
 
   if (typeof liveKitUrl !== 'string') {
     return <h2>Missing LiveKit URL</h2>;
@@ -74,7 +83,16 @@ export default function CustomRoomConnection() {
           audio={true}
           video={true}
         >
-          <VideoConference chatMessageFormatter={formatChatMessageLinks} />
+          {showWhiteboard ? (
+            <FullScreenWhiteboard/>
+          ) : (
+            <VideoConference chatMessageFormatter={formatChatMessageLinks} />
+          )}
+          <div className="controls">
+            <button onClick={() => setShowWhiteboard(!showWhiteboard)}>
+              {showWhiteboard ? 'Back to Conference' : 'Show Whiteboard'}
+            </button>
+          </div>
           <DebugMode logLevel={LogLevel.debug} />
         </LiveKitRoom>
       )}

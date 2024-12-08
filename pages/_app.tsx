@@ -4,6 +4,7 @@ import '@livekit/components-styles';
 import '@livekit/components-styles/prefabs';
 import { DefaultSeo } from 'next-seo';
 import "../styles/global.css";
+import { SessionProvider } from 'next-auth/react';
 
 function MyApp({ Component, pageProps }: AppProps) {
   return (
@@ -53,7 +54,9 @@ function MyApp({ Component, pageProps }: AppProps) {
           },
         ]}
       />
+      <SessionProvider session={pageProps.session}>
       <Component {...pageProps} />
+    </SessionProvider>
     </>
   );
 }
